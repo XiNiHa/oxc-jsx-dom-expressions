@@ -310,6 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { roundtrip } = nativeBinding
+const { OutputType, transform } = nativeBinding
 
-module.exports.roundtrip = roundtrip
+module.exports.OutputType = OutputType
+module.exports.transform = transform

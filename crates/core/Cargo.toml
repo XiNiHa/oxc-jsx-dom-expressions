@@ -1,0 +1,18 @@
+[package]
+name = "oxc-jsx-dom-expressions"
+edition = "2021"
+version = "0.0.0"
+
+[dependencies]
+oxc = { version = "0.31.0", features = [
+	"parser",
+	"semantic",
+	"transformer",
+	"codegen",
+	"sourcemap",
+] }
+oxc_traverse = "0.31.0"
+
+[dev-dependencies]
+pretty_assertions = "1.4.1"
+tests_macros = { git = "https://github.com/biomejs/biome", rev = "4d3e6cd8017a5cb5b0078654a105da86b88ecf25" }

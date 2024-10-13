@@ -6,7 +6,9 @@ settings:
 
 importers:
 
-  .:
+  .: {}
+
+  crates/napi:
     devDependencies:
       '@napi-rs/cli':
         specifier: ^2.18.4

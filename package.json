@@ -1,37 +1,9 @@
 {
-  "name": "oxc-jsx-dom-expressions",
-  "version": "0.0.0",
-  "author": "XiNiHa <me@xiniha.dev>",
-  "main": "index.js",
-  "types": "index.d.ts",
-  "scripts": {
-    "artifacts": "napi artifacts",
-    "build": "napi build --platform --release",
-    "build:debug": "napi build --platform",
-    "prepublishOnly": "napi prepublish -t npm",
-    "test": "node --test",
-    "universal": "napi universal",
-    "version": "napi version"
-  },
-  "napi": {
-    "name": "oxc-jsx-dom-expressions",
-    "triples": {
-      "additional": [
-        "aarch64-apple-darwin",
-        "aarch64-unknown-linux-gnu",
-        "aarch64-unknown-linux-musl",
-        "aarch64-pc-windows-msvc",
-        "x86_64-unknown-linux-musl"
-      ]
-    }
-  },
-  "devDependencies": {
-    "@napi-rs/cli": "^2.18.4",
-    "@types/node": "^22.7.5"
-  },
-  "engines": {
-    "node": ">= 10"
-  },
-  "license": "MIT",
+	"private": true,
+	"scripts": {
+		"build": "pnpm run -r build",
+		"build:debug": "pnpm run -r build:debug",
+		"test": "pnpm run -r test"
+	},
   "packageManager": "pnpm@9.11.0+sha512.0a203ffaed5a3f63242cd064c8fb5892366c103e328079318f78062f24ea8c9d50bc6a47aa3567cabefd824d170e78fa2745ed1f16b132e16436146b7688f19b"
 }

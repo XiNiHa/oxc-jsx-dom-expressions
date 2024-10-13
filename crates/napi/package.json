@@ -1,0 +1,36 @@
+{
+  "name": "oxc-jsx-dom-expressions",
+  "version": "0.0.0",
+  "author": "XiNiHa <me@xiniha.dev>",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "scripts": {
+    "artifacts": "napi artifacts",
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "prepublishOnly": "napi prepublish -t npm",
+    "test": "node --test \"tests/**/*.?(c|m)js\"",
+    "universal": "napi universal",
+    "version": "napi version"
+  },
+  "napi": {
+    "name": "oxc-jsx-dom-expressions",
+    "triples": {
+      "additional": [
+        "aarch64-apple-darwin",
+        "aarch64-unknown-linux-gnu",
+        "aarch64-unknown-linux-musl",
+        "aarch64-pc-windows-msvc",
+        "x86_64-unknown-linux-musl"
+      ]
+    }
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.4",
+    "@types/node": "^22.7.5"
+  },
+  "engines": {
+    "node": ">= 10"
+  },
+  "license": "MIT"
+}
