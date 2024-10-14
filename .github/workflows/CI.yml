@@ -267,14 +267,7 @@ jobs:
           platforms: arm64
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
       - name: Setup and run tests
-        uses: addnab/docker-run-action@v3
-        with:
-          image: gplane/pnpm:9-node${{ matrix.node }}-bullseye
-          options: "--platform linux/arm64 -v ${{ github.workspace }}:/build -w /build"
-          run: |
-            set -e
-            pnpm test
-            ls -la
+        run: docker run --rm --platform linux/arm64 -v $(pwd):/build -w /build gplane/pnpm:9-node${{ matrix.node }}-bullseye test
   test-linux-aarch64-musl-binding:
     name: Test bindings on aarch64-unknown-linux-musl - node@${{ matrix.node }}
     needs:
@@ -301,13 +294,7 @@ jobs:
           platforms: arm64
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
       - name: Setup and run tests
-        uses: addnab/docker-run-action@v3
-        with:
-          image: gplane/pnpm:9-node22-alpine
-          options: "--platform linux/arm64 -v ${{ github.workspace }}:/build -w /build"
-          run: |
-            set -e
-            pnpm test
+        run: docker run --rm --platform linux/arm64 -v $(pwd):/build -w /build gplane/pnpm:9-node${{ matrix.node }}-alpine test
   publish:
     name: Publish
     runs-on: ubuntu-latest
