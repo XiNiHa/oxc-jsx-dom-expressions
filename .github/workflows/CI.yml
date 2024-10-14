@@ -329,11 +329,11 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          path: crates/napi/artifacts
       - name: Move artifacts
-        run: pnpm artifacts
+        run: pnpm -r artifacts
       - name: List packages
-        run: ls -R ./npm
+        run: ls -R ./crates/napi/npm
         shell: bash
       - name: Publish
         run: |
