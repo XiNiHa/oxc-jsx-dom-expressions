@@ -189,10 +189,28 @@ impl<'a> Traverse<'a> for ThisToSelfTransform<'a> {
         ctx: &mut oxc_traverse::TraverseCtx<'a>,
     ) {
         let scope_id = ctx.current_scope_id();
+        let is_constructor = match ctx.ancestor(1 /* Function (0) > MethodDefinition (1) */) {
+            Ancestor::MethodDefinitionValue(m) => m.key().is_specific_static_name("constructor"),
+            _ => false,
+        };
         self.bindings.retain(|b| {
             if b.scope_id == scope_id {
                 let stmt = ThisToSelfTransform::make_self_binding_stmt(b.self_name.clone(), ctx);
-                node.statements.insert(0, stmt);
+                let index = match is_constructor {
+                    true => node
+                        .statements
+                        .iter()
+                        .position(|s| match s {
+                            ast::Statement::ExpressionStatement(stmt) => {
+                                stmt.expression.is_super_call_expression()
+                            }
+                            _ => false,
+                        })
+                        .map(|i| i + 1)
+                        .unwrap_or(0),
+                    false => 0,
+                };
+                node.statements.insert(index, stmt);
                 false
             } else {
                 true
@@ -212,8 +230,10 @@ impl<'a> Traverse<'a> for ThisToSelfTransform<'a> {
                     _ => unreachable!(),
                 };
                 node.body.statements.push(
-                    ctx.ast
-                        .statement_return(SPAN, Some(ctx.ast.move_expression(&mut expr.expression))),
+                    ctx.ast.statement_return(
+                        SPAN,
+                        Some(ctx.ast.move_expression(&mut expr.expression)),
+                    ),
                 );
                 node.expression = false;
             }
