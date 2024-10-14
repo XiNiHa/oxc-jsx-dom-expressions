@@ -207,13 +207,13 @@ impl<'a> Traverse<'a> for ThisToSelfTransform<'a> {
     ) {
         if node.expression && node.body.statements.len() > 1 {
             if let Some(ast::Statement::ExpressionStatement(_)) = node.body.statements.last() {
-                let expr = match node.body.statements.pop() {
+                let mut expr = match node.body.statements.pop() {
                     Some(ast::Statement::ExpressionStatement(e)) => e,
                     _ => unreachable!(),
                 };
                 node.body.statements.push(
                     ctx.ast
-                        .statement_return(SPAN, Some(unsafe { ctx.ast.copy(&expr.expression) })),
+                        .statement_return(SPAN, Some(ctx.ast.move_expression(&mut expr.expression))),
                 );
                 node.expression = false;
             }
