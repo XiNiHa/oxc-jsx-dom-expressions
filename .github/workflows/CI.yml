@@ -133,8 +133,7 @@ jobs:
           - host: windows-latest
             target: x86_64-pc-windows-msvc
         node:
-          - '18'
-          - '20'
+          - '22'
     runs-on: ${{ matrix.settings.host }}
     steps:
       - uses: actions/checkout@v4
@@ -164,8 +163,7 @@ jobs:
       fail-fast: false
       matrix:
         node:
-          - '18'
-          - '20'
+          - '22'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -194,8 +192,7 @@ jobs:
       fail-fast: false
       matrix:
         node:
-          - '18'
-          - '20'
+          - '22'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -226,8 +223,7 @@ jobs:
       fail-fast: false
       matrix:
         node:
-          - '18'
-          - '20'
+          - '22'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -305,7 +301,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
       - name: Install dependencies
         run: pnpm install
