@@ -4,10 +4,14 @@ use oxc::{
     allocator::Allocator, codegen::Codegen, parser::Parser, semantic::SemanticBuilder,
     span::SourceType,
 };
-use oxc_traverse::Traverse;
 
 pub mod config;
+mod jsx_transform;
+mod this_to_self;
+
 pub use config::*;
+use jsx_transform::JsxTransform;
+use this_to_self::ThisToSelfTransform;
 
 pub fn transform(source: String, config: Config) -> Result<String, Infallible> {
     let allocator = Allocator::default();
@@ -20,12 +24,23 @@ pub fn transform(source: String, config: Config) -> Result<String, Infallible> {
         .build(&program);
     let (symbols, scopes) = semantic_result.semantic.into_symbol_table_and_scope_tree();
 
-    let mut transform = JsxTransform;
-    oxc_traverse::traverse_mut(&mut transform, &allocator, &mut program, symbols, scopes);
+    let mut this_transform = ThisToSelfTransform::new();
+    let (symbols, scopes) = oxc_traverse::traverse_mut(
+        &mut this_transform,
+        &allocator,
+        &mut program,
+        symbols,
+        scopes,
+    );
+
+    let mut jsx_transform = JsxTransform::new(config);
+    oxc_traverse::traverse_mut(
+        &mut jsx_transform,
+        &allocator,
+        &mut program,
+        symbols,
+        scopes,
+    );
 
     Ok(Codegen::new().build(&program).code)
 }
-
-struct JsxTransform;
-
-impl<'a> Traverse<'a> for JsxTransform {}
