@@ -4,6 +4,7 @@ edition = "2021"
 version = "0.0.0"
 
 [dependencies]
+html-escape = "0.2.13"
 oxc = { version = "0.31.0", features = [
 	"parser",
 	"semantic",

@@ -6,12 +6,10 @@ use oxc::{
 };
 
 pub mod config;
-mod jsx_transform;
-mod this_to_self;
+mod shared;
 
 pub use config::*;
-use jsx_transform::JsxTransform;
-use this_to_self::ThisToSelfTransform;
+use shared::{this_to_self::ThisToSelfTransform, transform::JsxTransform};
 
 pub fn transform(source: String, config: Config) -> Result<String, Infallible> {
     let allocator = Allocator::default();
