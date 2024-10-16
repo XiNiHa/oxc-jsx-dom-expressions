@@ -1,7 +1,7 @@
 use html_escape::decode_html_entities;
 use oxc::{
-    allocator::Vec as OxcVec,
-    ast::ast,
+    allocator::{Allocator, Vec as OxcVec},
+    ast::ast::{self, JSXElementName},
     semantic::SymbolFlags,
     span::{Atom, SPAN},
 };
@@ -132,10 +132,46 @@ impl<'a> JsxTransform {
         el: &ast::JSXElement<'a>,
         ctx: &mut TraverseCtx<'a>,
     ) -> TransformResult<'a> {
-        // TODO
+        let tag_name = match el.opening_element.name {
+            ast::JSXElementName::Identifier(ref ident) => ident.name.clone(),
+            _ => {
+                return TransformResult {
+                    id: None,
+                    template: None,
+                    exprs: ctx.ast.vec(),
+                    text: false,
+                }
+            }
+        };
+
+        let class_name = el
+            .opening_element
+            .attributes
+            .iter()
+            .find_map(|attr| match attr {
+                ast::JSXAttributeItem::Attribute(attr) => match &attr.name {
+                    ast::JSXAttributeName::Identifier(ident) if ident.name == "class" => {
+                        attr.value.as_ref().and_then(|value| match value {
+                            ast::JSXAttributeValue::StringLiteral(str_lit) => {
+                                Some(str_lit.value.clone())
+                            }
+                            _ => None,
+                        })
+                    }
+                    _ => None,
+                },
+                _ => None,
+            });
+
+        // TODO: temporary template. need to be changed
+        let template = match class_name {
+            Some(class) => format!(r#"<{} class="{}">$`</{}>"#, tag_name, class, tag_name),
+            None => format!(r#"<{}>$</{}>"#, tag_name, tag_name),
+        };
+
         TransformResult {
             id: None,
-            template: None,
+            template: Some(template),
             exprs: ctx.ast.vec(),
             text: false,
         }
@@ -205,8 +241,134 @@ impl<'a> TransformResult<'a> {
         match config.generate {
             OutputType::Dom => {
                 // TODO
+                // if template is not null, create template => import { template as _$template } from "solid-js/web"; ... (client side rendering)
                 ctx.ast.expression_null_literal(SPAN)
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod transform_tests {
+    use oxc::{allocator::Allocator, parser::Parser, semantic::SemanticBuilder, span::SourceType};
+
+    use super::*;
+
+    #[test]
+    fn test_transform_element() {
+        let source = r#"<div class="test-class">Hello</div>"#;
+
+        let allocator = Allocator::default();
+        let source_type = SourceType::jsx();
+
+        let parse_result = Parser::new(&allocator, source, source_type).parse();
+        let program = parse_result.program;
+
+        let semantic_result = SemanticBuilder::new(&source)
+            .with_excess_capacity(2.0)
+            .build(&program);
+        let (symbols, scopes) = semantic_result.semantic.into_symbol_table_and_scope_tree();
+
+        if let ast::Statement::ExpressionStatement(expr_stmt) = &program.body[0] {
+            if let ast::Expression::JSXElement(jsx_element) = &expr_stmt.expression {
+                let mut ctx = TraverseCtx::new(scopes, symbols, &allocator);
+                let config = Config {
+                    generate: OutputType::Dom,
+                    ..Default::default()
+                };
+                let transform = JsxTransform::new(config);
+
+                let result = transform.transform_element(jsx_element, &mut ctx);
+
+                assert_eq!(result.id, None);
+                assert_eq!(
+                    result.template,
+                    Some(r#"<div class="test-class">$`</div>"#.to_string())
+                );
+                assert_eq!(result.exprs.len(), 0);
+                assert_eq!(result.text, false);
+            } else {
+                panic!("Expected JSXElement");
+            }
+        } else {
+            panic!("Expected ExpressionStatement");
+        }
+    }
+
+    #[test]
+    fn test_transform_element_without_class() {
+        let source = r#"<div>Hello</div>"#;
+
+        let allocator = Allocator::default();
+        let source_type = SourceType::jsx();
+
+        let parse_result = Parser::new(&allocator, source, source_type).parse();
+        let program = parse_result.program;
+        let semantic_result = SemanticBuilder::new(&source)
+            .with_excess_capacity(2.0)
+            .build(&program);
+        let (symbols, scopes) = semantic_result.semantic.into_symbol_table_and_scope_tree();
+
+        if let ast::Statement::ExpressionStatement(expr_stmt) = &program.body[0] {
+            if let ast::Expression::JSXElement(jsx_element) = &expr_stmt.expression {
+                let mut ctx = TraverseCtx::new(scopes, symbols, &allocator);
+                let config = Config {
+                    generate: OutputType::Dom,
+                    ..Default::default()
+                };
+                let transform = JsxTransform::new(config);
+
+                let result = transform.transform_element(jsx_element, &mut ctx);
+
+                assert_eq!(result.id, None);
+                assert_eq!(result.template, Some("<div>$</div>".to_string()));
+                assert_eq!(result.exprs.len(), 0);
+                assert_eq!(result.text, false);
+            } else {
+                panic!("Expected JSXElement");
+            }
+        } else {
+            panic!("Expected ExpressionStatement");
+        }
+    }
+
+    #[test]
+    fn test_transform_element_span_class() {
+        let source = r#"<span class="highlight">Text</span>"#;
+
+        let allocator = Allocator::default();
+        let source_type = SourceType::jsx();
+
+        let parse_result = Parser::new(&allocator, source, source_type).parse();
+        let program = parse_result.program;
+        let semantic_result = SemanticBuilder::new(&source)
+            .with_excess_capacity(2.0)
+            .build(&program);
+        let (symbols, scopes) = semantic_result.semantic.into_symbol_table_and_scope_tree();
+
+        if let ast::Statement::ExpressionStatement(expr_stmt) = &program.body[0] {
+            if let ast::Expression::JSXElement(jsx_element) = &expr_stmt.expression {
+                let mut ctx = TraverseCtx::new(scopes, symbols, &allocator);
+                let config = Config {
+                    generate: OutputType::Dom,
+                    ..Default::default()
+                };
+                let transform = JsxTransform::new(config);
+
+                let result = transform.transform_element(jsx_element, &mut ctx);
+
+                assert_eq!(result.id, None);
+                assert_eq!(
+                    result.template,
+                    Some(r#"<span class="highlight">$`</span>"#.to_string())
+                );
+                assert_eq!(result.exprs.len(), 0);
+                assert_eq!(result.text, false);
+            } else {
+                panic!("Expected JSXElement");
+            }
+        } else {
+            panic!("Expected ExpressionStatement");
         }
     }
 }
