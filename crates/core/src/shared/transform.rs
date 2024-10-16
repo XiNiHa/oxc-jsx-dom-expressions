@@ -251,124 +251,67 @@ impl<'a> TransformResult<'a> {
 #[cfg(test)]
 mod transform_tests {
     use oxc::{allocator::Allocator, parser::Parser, semantic::SemanticBuilder, span::SourceType};
-
     use super::*;
 
     #[test]
     fn test_transform_element() {
-        let source = r#"<div class="test-class">Hello</div>"#;
+        let test_cases = vec![
+            (
+                r#"<div class="test-class">Hello</div>"#,
+                None,
+                Some(r#"<div class=test-class>Hello"#.to_string()),
+                0,
+                false
+            ),
+            (
+                r#"<div>Hello</div>"#,
+                None,
+                Some("<div>Hello".to_string()),
+                0,
+                false
+            ),
+            (
+                r#"<span class="highlight">Text</span>"#,
+                None,
+                Some(r#"<span class=highlight>Text"#.to_string()),
+                0,
+                false
+            ),
+        ];
 
-        let allocator = Allocator::default();
-        let source_type = SourceType::jsx();
+        for (source, expected_id, expected_template, expected_exprs_len, expected_text) in test_cases {
+            let allocator = Allocator::default();
+            let source_type = SourceType::jsx();
 
-        let parse_result = Parser::new(&allocator, source, source_type).parse();
-        let program = parse_result.program;
+            let parse_result = Parser::new(&allocator, source, source_type).parse();
+            let program = parse_result.program;
 
-        let semantic_result = SemanticBuilder::new(&source)
-            .with_excess_capacity(2.0)
-            .build(&program);
-        let (symbols, scopes) = semantic_result.semantic.into_symbol_table_and_scope_tree();
+            let semantic_result = SemanticBuilder::new(source)
+                .with_excess_capacity(2.0)
+                .build(&program);
+            let (symbols, scopes) = semantic_result.semantic.into_symbol_table_and_scope_tree();
 
-        if let ast::Statement::ExpressionStatement(expr_stmt) = &program.body[0] {
-            if let ast::Expression::JSXElement(jsx_element) = &expr_stmt.expression {
-                let mut ctx = TraverseCtx::new(scopes, symbols, &allocator);
-                let config = Config {
-                    generate: OutputType::Dom,
-                    ..Default::default()
-                };
-                let transform = JsxTransform::new(config);
+            if let ast::Statement::ExpressionStatement(expr_stmt) = &program.body[0] {
+                if let ast::Expression::JSXElement(jsx_element) = &expr_stmt.expression {
+                    let mut ctx = TraverseCtx::new(scopes, symbols, &allocator);
+                    let config = Config {
+                        generate: OutputType::Dom,
+                        ..Default::default()
+                    };
+                    let transform = JsxTransform::new(config);
 
-                let result = transform.transform_element(jsx_element, &mut ctx);
+                    let result = transform.transform_element(jsx_element, &mut ctx);
 
-                assert_eq!(result.id, None);
-                assert_eq!(
-                    result.template,
-                    Some(r#"<div class="test-class">$`</div>"#.to_string())
-                );
-                assert_eq!(result.exprs.len(), 0);
-                assert_eq!(result.text, false);
+                    assert_eq!(result.id, expected_id, "Failed for source: {}", source);
+                    assert_eq!(result.template, expected_template, "Failed for source: {}", source);
+                    assert_eq!(result.exprs.len(), expected_exprs_len, "Failed for source: {}", source);
+                    assert_eq!(result.text, expected_text, "Failed for source: {}", source);
+                } else {
+                    panic!("Expected JSXElement for source: {}", source);
+                }
             } else {
-                panic!("Expected JSXElement");
+                panic!("Expected ExpressionStatement for source: {}", source);
             }
-        } else {
-            panic!("Expected ExpressionStatement");
-        }
-    }
-
-    #[test]
-    fn test_transform_element_without_class() {
-        let source = r#"<div>Hello</div>"#;
-
-        let allocator = Allocator::default();
-        let source_type = SourceType::jsx();
-
-        let parse_result = Parser::new(&allocator, source, source_type).parse();
-        let program = parse_result.program;
-        let semantic_result = SemanticBuilder::new(&source)
-            .with_excess_capacity(2.0)
-            .build(&program);
-        let (symbols, scopes) = semantic_result.semantic.into_symbol_table_and_scope_tree();
-
-        if let ast::Statement::ExpressionStatement(expr_stmt) = &program.body[0] {
-            if let ast::Expression::JSXElement(jsx_element) = &expr_stmt.expression {
-                let mut ctx = TraverseCtx::new(scopes, symbols, &allocator);
-                let config = Config {
-                    generate: OutputType::Dom,
-                    ..Default::default()
-                };
-                let transform = JsxTransform::new(config);
-
-                let result = transform.transform_element(jsx_element, &mut ctx);
-
-                assert_eq!(result.id, None);
-                assert_eq!(result.template, Some("<div>$</div>".to_string()));
-                assert_eq!(result.exprs.len(), 0);
-                assert_eq!(result.text, false);
-            } else {
-                panic!("Expected JSXElement");
-            }
-        } else {
-            panic!("Expected ExpressionStatement");
-        }
-    }
-
-    #[test]
-    fn test_transform_element_span_class() {
-        let source = r#"<span class="highlight">Text</span>"#;
-
-        let allocator = Allocator::default();
-        let source_type = SourceType::jsx();
-
-        let parse_result = Parser::new(&allocator, source, source_type).parse();
-        let program = parse_result.program;
-        let semantic_result = SemanticBuilder::new(&source)
-            .with_excess_capacity(2.0)
-            .build(&program);
-        let (symbols, scopes) = semantic_result.semantic.into_symbol_table_and_scope_tree();
-
-        if let ast::Statement::ExpressionStatement(expr_stmt) = &program.body[0] {
-            if let ast::Expression::JSXElement(jsx_element) = &expr_stmt.expression {
-                let mut ctx = TraverseCtx::new(scopes, symbols, &allocator);
-                let config = Config {
-                    generate: OutputType::Dom,
-                    ..Default::default()
-                };
-                let transform = JsxTransform::new(config);
-
-                let result = transform.transform_element(jsx_element, &mut ctx);
-
-                assert_eq!(result.id, None);
-                assert_eq!(
-                    result.template,
-                    Some(r#"<span class="highlight">$`</span>"#.to_string())
-                );
-                assert_eq!(result.exprs.len(), 0);
-                assert_eq!(result.text, false);
-            } else {
-                panic!("Expected JSXElement");
-            }
-        } else {
-            panic!("Expected ExpressionStatement");
         }
     }
 }
