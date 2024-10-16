@@ -9,7 +9,7 @@ mod dom;
 
 fn roundtrip(source: &str) -> String {
     let allocator = Allocator::default();
-    let ret = Parser::new(&allocator, &source, SourceType::tsx()).parse();
+    let ret = Parser::new(&allocator, source, SourceType::tsx()).parse();
     let program = allocator.alloc(ret.program);
     CodeGenerator::new()
         .with_options(CodegenOptions {
