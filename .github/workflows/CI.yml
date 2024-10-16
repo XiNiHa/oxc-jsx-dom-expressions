@@ -20,6 +20,19 @@ permissions:
       - docs/**
   pull_request: null
 jobs:
+  check:
+    name: Run checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
   test-core:
     name: Test Rust native test suites in Core
     runs-on: ubuntu-latest
