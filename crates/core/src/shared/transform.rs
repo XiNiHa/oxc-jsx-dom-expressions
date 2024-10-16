@@ -144,38 +144,11 @@ impl<'a> JsxTransform {
             }
         };
 
-        // generate attributes string without quotes around values
-        let mut attrs = String::new();
-        for attr in &el.opening_element.attributes {
-            if let ast::JSXAttributeItem::Attribute(attr) = attr {
-                if let ast::JSXAttributeName::Identifier(ident) = &attr.name {
-                    let name = ident.name.as_ref();
-                    if let Some(v) = &attr.value {
-                        if let ast::JSXAttributeValue::StringLiteral(lit) = v {
-                            let value = lit.value.as_ref();
-                            attrs.push_str(&format!(" {}={}", name, value));
-                        }
-                        // TODO: handle other cases of attr.value if needed
-                    } else {
-                        attrs.push_str(&format!(" {}", name));
-                    }
-                }
-                // TODO: handle other attr.name
-            }
-            // TOOD: handle other cases of attributes
-        }
+        let attributes = self.generate_attributes(&el.opening_element.attributes);
+        let child_templates = self.generate_child_templates(&el.children, ctx);
 
-        let mut child_tmpls = String::new();
-        let info = TransformInfo::default();
-        for child in &el.children {
-            if let Some(child_result) = self.transform_node(child, ctx, &info) {
-                if let Some(child_tmpl) = child_result.template {
-                    child_tmpls.push_str(&child_tmpl);
-                }
-            }
-        }
-
-        let template = format!("<{}{}>{}", tag_name, attrs, child_tmpls);
+        // TODO
+        let template = format!("<{}{}>{}", tag_name, attributes, child_templates);
 
         TransformResult {
             id: None,
@@ -238,6 +211,56 @@ impl<'a> JsxTransform {
             text: false,
         }
     }
+
+    /// generate attributes string without quotes around values
+    fn generate_attributes(&self, attrs: &[ast::JSXAttributeItem<'a>]) -> String {
+        let mut attrs_string = String::new();
+        for attr_item in attrs {
+            let ast::JSXAttributeItem::Attribute(attr) = attr_item else {
+                continue;
+            };
+            let ast::JSXAttributeName::Identifier(ident) = &attr.name else {
+                continue;
+            };
+            let name = ident.name.as_ref();
+
+            match &attr.value {
+                Some(ast::JSXAttributeValue::StringLiteral(str_lit)) => {
+                    let value = str_lit.value.as_ref();
+                    attrs_string.push_str(&format!(" {}={}", name, value));
+                }
+                Some(_) => {
+                    // TODO
+                }
+                None => {
+                    // attributes without a value (e.g., <input disabled />)
+                    attrs_string.push_str(&format!(" {}", name));
+                }
+            }
+        }
+        attrs_string
+    }
+
+    /// Process children and collect their templates
+    fn generate_child_templates(
+        &self,
+        children: &[ast::JSXChild<'a>],
+        ctx: &mut TraverseCtx<'a>,
+    ) -> String {
+        let mut child_tmpls = String::new();
+        let info = TransformInfo::default();
+        for child in children {
+            match self.transform_node(child, ctx, &info) {
+                Some(child_result) => {
+                    if let Some(child_tmpl) = child_result.template {
+                        child_tmpls.push_str(&child_tmpl);
+                    }
+                }
+                None => {}
+            }
+        }
+        child_tmpls
+    }
 }
 
 impl<'a> TransformResult<'a> {
@@ -258,8 +281,8 @@ impl<'a> TransformResult<'a> {
 
 #[cfg(test)]
 mod transform_tests {
-    use oxc::{allocator::Allocator, parser::Parser, semantic::SemanticBuilder, span::SourceType};
     use super::*;
+    use oxc::{allocator::Allocator, parser::Parser, semantic::SemanticBuilder, span::SourceType};
 
     struct test_case {
         source: &'static str,
@@ -333,10 +356,27 @@ mod transform_tests {
 
                     let result = transform.transform_element(jsx_element, &mut ctx);
 
-                    assert_eq!(result.id, case.expected_id, "Failed for source: {}", case.source);
-                    assert_eq!(result.template, case.expected_template, "Failed for source: {}", case.source);
-                    assert_eq!(result.exprs.len(), case.expected_exprs_len, "Failed for source: {}", case.source);
-                    assert_eq!(result.text, case.expected_text, "Failed for source: {}", case.source);
+                    assert_eq!(
+                        result.id, case.expected_id,
+                        "Failed for source: {}",
+                        case.source
+                    );
+                    assert_eq!(
+                        result.template, case.expected_template,
+                        "Failed for source: {}",
+                        case.source
+                    );
+                    assert_eq!(
+                        result.exprs.len(),
+                        case.expected_exprs_len,
+                        "Failed for source: {}",
+                        case.source
+                    );
+                    assert_eq!(
+                        result.text, case.expected_text,
+                        "Failed for source: {}",
+                        case.source
+                    );
                 } else {
                     panic!("Expected JSXElement for source: {}", case.source);
                 }
