@@ -132,9 +132,10 @@ impl<'a> JsxTransform {
         el: &ast::JSXElement<'a>,
         ctx: &mut TraverseCtx<'a>,
     ) -> TransformResult<'a> {
-        let tag_name = match el.opening_element.name {
-            ast::JSXElementName::Identifier(ref ident) => ident.name.clone(),
+        let tag_name = match &el.opening_element.name {
+            ast::JSXElementName::Identifier(ident) => ident.name.clone(),
             _ => {
+                // TODO
                 return TransformResult {
                     id: None,
                     template: None,
