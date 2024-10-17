@@ -20,18 +20,19 @@ impl JsxTransform {
 }
 
 #[derive(Default)]
-struct TransformInfo {
+pub struct TransformInfo {
     top_level: bool,
     skip_id: bool,
     last_element: bool,
     do_not_escape: bool,
 }
 
-struct TransformResult<'a> {
-    id: Option<Atom<'a>>,
-    template: Option<String>,
-    exprs: OxcVec<'a, ast::Expression<'a>>,
-    text: bool,
+pub struct TransformResult<'a> {
+    pub id: Option<Atom<'a>>,
+    pub template: Option<String>,
+    pub exprs: OxcVec<'a, ast::Expression<'a>>,
+    pub text: bool,
+    pub skip_template: bool,
 }
 
 impl<'a> Traverse<'a> for JsxTransform {
@@ -51,7 +52,7 @@ impl<'a> Traverse<'a> for JsxTransform {
                     &Default::default(),
                 );
                 *node = result
-                    .map(|r| r.create_template(&self.config, ctx))
+                    .map(|r| r.create_template(&self.config, ctx, false))
                     .unwrap_or_else(|| ctx.ast.expression_null_literal(SPAN));
             }
             ast::Expression::JSXFragment(_) => {
@@ -68,7 +69,7 @@ impl<'a> Traverse<'a> for JsxTransform {
                     },
                 );
                 *node = result
-                    .map(|r| r.create_template(&self.config, ctx))
+                    .map(|r| r.create_template(&self.config, ctx, false))
                     .unwrap_or_else(|| ctx.ast.expression_null_literal(SPAN));
             }
             _ => {}
@@ -77,7 +78,7 @@ impl<'a> Traverse<'a> for JsxTransform {
 }
 
 impl<'a> JsxTransform {
-    fn transform_node(
+    pub fn transform_node(
         &self,
         node: &ast::JSXChild<'a>,
         ctx: &mut TraverseCtx<'a>,
@@ -104,6 +105,7 @@ impl<'a> JsxTransform {
                     template: Some(str),
                     text: true,
                     exprs: ctx.ast.vec(),
+                    skip_template: false,
                 }),
             },
             ast::JSXChild::ExpressionContainer(container) => {
@@ -113,6 +115,7 @@ impl<'a> JsxTransform {
                     template: None,
                     exprs: ctx.ast.vec(),
                     text: false,
+                    skip_template: false,
                 })
             }
             ast::JSXChild::Spread(spread) => {
@@ -122,44 +125,23 @@ impl<'a> JsxTransform {
                     template: None,
                     exprs: ctx.ast.vec(),
                     text: false,
+                    skip_template: false,
                 })
             }
         }
     }
 
-    fn transform_element(
+    pub fn transform_element(
         &self,
         el: &ast::JSXElement<'a>,
         ctx: &mut TraverseCtx<'a>,
     ) -> TransformResult<'a> {
-        let tag_name = match &el.opening_element.name {
-            ast::JSXElementName::Identifier(ident) => ident.name.clone(),
-            _ => {
-                // TODO
-                return TransformResult {
-                    id: None,
-                    template: None,
-                    exprs: ctx.ast.vec(),
-                    text: false,
-                };
-            }
-        };
-
-        let attributes = self.generate_attributes(&el.opening_element.attributes);
-        let child_templates = self.generate_child_templates(&el.children, ctx);
-
-        // TODO
-        let template = format!("<{}{}>{}", tag_name, attributes, child_templates);
-
-        TransformResult {
-            id: None,
-            template: Some(template),
-            exprs: ctx.ast.vec(),
-            text: false,
+        match self.config.generate {
+            OutputType::Dom => self.transform_element_dom(el, ctx),
         }
     }
 
-    fn transform_fragment_children(
+    pub fn transform_fragment_children(
         &self,
         children: &OxcVec<'a, ast::JSXChild<'a>>,
         ctx: &mut TraverseCtx<'a>,
@@ -189,7 +171,7 @@ impl<'a> JsxTransform {
                     let child_result = self.transform_node(child, ctx, info);
                     child_result
                         .as_ref()
-                        .map(|r| r.create_template(&self.config, ctx))
+                        .map(|r| r.create_template(&self.config, ctx, true))
                 }
             }));
         TransformResult {
@@ -210,52 +192,8 @@ impl<'a> JsxTransform {
             id: None,
             template: None,
             text: false,
+            skip_template: false,
         }
-    }
-
-    /// generate attributes string without quotes around values
-    fn generate_attributes(&self, attrs: &[ast::JSXAttributeItem<'a>]) -> String {
-        let mut attrs_string = String::new();
-        for attr_item in attrs {
-            let ast::JSXAttributeItem::Attribute(attr) = attr_item else {
-                continue;
-            };
-            let ast::JSXAttributeName::Identifier(ident) = &attr.name else {
-                continue;
-            };
-            let name = ident.name.as_ref();
-
-            match &attr.value {
-                Some(ast::JSXAttributeValue::StringLiteral(str_lit)) => {
-                    let value = str_lit.value.as_ref();
-                    attrs_string.push_str(&format!(" {}={}", name, value));
-                }
-                Some(_) => {
-                    // TODO
-                }
-                None => {
-                    // attributes without a value (e.g., <input disabled />)
-                    attrs_string.push_str(&format!(" {}", name));
-                }
-            }
-        }
-        attrs_string
-    }
-
-    /// Process children and collect their templates
-    fn generate_child_templates(
-        &self,
-        children: &[ast::JSXChild<'a>],
-        ctx: &mut TraverseCtx<'a>,
-    ) -> String {
-        let info = TransformInfo::default();
-        children
-            .iter()
-            .filter_map(|child| {
-                self.transform_node(child, ctx, &info)
-                    .and_then(|child_result| child_result.template)
-            })
-            .collect::<String>()
     }
 }
 
@@ -264,15 +202,26 @@ impl<'a> TransformResult<'a> {
         &self,
         config: &Config,
         ctx: &mut oxc_traverse::TraverseCtx<'a>,
+        wrap: bool,
     ) -> ast::Expression<'a> {
+        let mut creation_ctx = TemplateCreationCtx {
+            templates: Vec::new(),
+        };
+
         match config.generate {
-            OutputType::Dom => {
-                // TODO
-                // if template is not null, create template => import { template as _$template } from "solid-js/web"; ... (client side rendering)
-                ctx.ast.expression_null_literal(SPAN)
-            }
+            OutputType::Dom => self.create_template_dom(config, ctx, &mut creation_ctx, wrap),
         }
     }
+}
+
+pub struct TemplateCreationCtx<'a> {
+    pub templates: Vec<Template<'a>>,
+}
+
+pub struct Template<'a> {
+    pub id: Atom<'a>,
+    pub template: String,
+    pub renderer: OutputType,
 }
 
 #[cfg(test)]
