@@ -1,7 +1,7 @@
 use html_escape::decode_html_entities;
 use oxc::{
-    allocator::{Allocator, Vec as OxcVec},
-    ast::ast::{self, JSXElementName},
+    allocator::Vec as OxcVec,
+    ast::ast::{self},
     semantic::SymbolFlags,
     span::{Atom, SPAN},
 };
@@ -141,7 +141,7 @@ impl<'a> JsxTransform {
                     template: None,
                     exprs: ctx.ast.vec(),
                     text: false,
-                }
+                };
             }
         };
 
@@ -248,19 +248,14 @@ impl<'a> JsxTransform {
         children: &[ast::JSXChild<'a>],
         ctx: &mut TraverseCtx<'a>,
     ) -> String {
-        let mut child_tmpls = String::new();
         let info = TransformInfo::default();
-        for child in children {
-            match self.transform_node(child, ctx, &info) {
-                Some(child_result) => {
-                    if let Some(child_tmpl) = child_result.template {
-                        child_tmpls.push_str(&child_tmpl);
-                    }
-                }
-                None => {}
-            }
-        }
-        child_tmpls
+        children
+            .iter()
+            .filter_map(|child| {
+                self.transform_node(child, ctx, &info)
+                    .and_then(|child_result| child_result.template)
+            })
+            .collect::<String>()
     }
 }
 
