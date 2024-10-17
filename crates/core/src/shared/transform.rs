@@ -280,7 +280,7 @@ mod transform_tests {
     use super::*;
     use oxc::{allocator::Allocator, parser::Parser, semantic::SemanticBuilder, span::SourceType};
 
-    struct test_case {
+    struct TestCase {
         source: &'static str,
         expected_id: Option<Atom<'static>>,
         expected_template: Option<String>,
@@ -296,7 +296,7 @@ mod transform_tests {
                 var _tmpl$ = /*#__PURE__*/_$template(`<div class=test-class>Hello`); // <-
                 const foo = _tmpl$();
             */
-            test_case {
+            TestCase {
                 source: r#"<div class="test-class">Hello</div>"#,
                 expected_id: None,
                 expected_template: Some(r#"<div class=test-class>Hello"#.to_string()),
@@ -308,7 +308,7 @@ mod transform_tests {
                 var _tmpl$ = /*#__PURE__*/_$template(`<div>Hello`); // <-
                 const foo = _tmpl$();
             */
-            test_case {
+            TestCase {
                 source: r#"<div>Hello</div>"#,
                 expected_id: None,
                 expected_template: Some(r#"<div>Hello"#.to_string()),
@@ -320,7 +320,7 @@ mod transform_tests {
                 var _tmpl$ = /*#__PURE__*/_$template(`<span class=highlight>Text`); // <-
                 const foo = _tmpl$();
             */
-            test_case {
+            TestCase {
                 source: r#"<span class="highlight">Text</span>"#,
                 expected_id: None,
                 expected_template: Some(r#"<span class=highlight>Text"#.to_string()),
