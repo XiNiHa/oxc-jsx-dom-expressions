@@ -1,7 +1,7 @@
 use html_escape::decode_html_entities;
 use oxc::{
     allocator::Vec as OxcVec,
-    ast::ast,
+    ast::ast::{self},
     semantic::SymbolFlags,
     span::{Atom, SPAN},
 };
@@ -132,10 +132,28 @@ impl<'a> JsxTransform {
         el: &ast::JSXElement<'a>,
         ctx: &mut TraverseCtx<'a>,
     ) -> TransformResult<'a> {
+        let tag_name = match &el.opening_element.name {
+            ast::JSXElementName::Identifier(ident) => ident.name.clone(),
+            _ => {
+                // TODO
+                return TransformResult {
+                    id: None,
+                    template: None,
+                    exprs: ctx.ast.vec(),
+                    text: false,
+                };
+            }
+        };
+
+        let attributes = self.generate_attributes(&el.opening_element.attributes);
+        let child_templates = self.generate_child_templates(&el.children, ctx);
+
         // TODO
+        let template = format!("<{}{}>{}", tag_name, attributes, child_templates);
+
         TransformResult {
             id: None,
-            template: None,
+            template: Some(template),
             exprs: ctx.ast.vec(),
             text: false,
         }
@@ -194,6 +212,51 @@ impl<'a> JsxTransform {
             text: false,
         }
     }
+
+    /// generate attributes string without quotes around values
+    fn generate_attributes(&self, attrs: &[ast::JSXAttributeItem<'a>]) -> String {
+        let mut attrs_string = String::new();
+        for attr_item in attrs {
+            let ast::JSXAttributeItem::Attribute(attr) = attr_item else {
+                continue;
+            };
+            let ast::JSXAttributeName::Identifier(ident) = &attr.name else {
+                continue;
+            };
+            let name = ident.name.as_ref();
+
+            match &attr.value {
+                Some(ast::JSXAttributeValue::StringLiteral(str_lit)) => {
+                    let value = str_lit.value.as_ref();
+                    attrs_string.push_str(&format!(" {}={}", name, value));
+                }
+                Some(_) => {
+                    // TODO
+                }
+                None => {
+                    // attributes without a value (e.g., <input disabled />)
+                    attrs_string.push_str(&format!(" {}", name));
+                }
+            }
+        }
+        attrs_string
+    }
+
+    /// Process children and collect their templates
+    fn generate_child_templates(
+        &self,
+        children: &[ast::JSXChild<'a>],
+        ctx: &mut TraverseCtx<'a>,
+    ) -> String {
+        let info = TransformInfo::default();
+        children
+            .iter()
+            .filter_map(|child| {
+                self.transform_node(child, ctx, &info)
+                    .and_then(|child_result| child_result.template)
+            })
+            .collect::<String>()
+    }
 }
 
 impl<'a> TransformResult<'a> {
@@ -205,7 +268,116 @@ impl<'a> TransformResult<'a> {
         match config.generate {
             OutputType::Dom => {
                 // TODO
+                // if template is not null, create template => import { template as _$template } from "solid-js/web"; ... (client side rendering)
                 ctx.ast.expression_null_literal(SPAN)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod transform_tests {
+    use super::*;
+    use oxc::{allocator::Allocator, parser::Parser, semantic::SemanticBuilder, span::SourceType};
+
+    struct TestCase {
+        source: &'static str,
+        expected_id: Option<Atom<'static>>,
+        expected_template: Option<String>,
+        expected_exprs_len: usize,
+        expected_text: bool,
+    }
+
+    #[test]
+    fn test_transform_element() {
+        let test_cases = vec![
+            /* solidJS client side rendering result
+                import { template as _$template } from "solid-js/web";
+                var _tmpl$ = /*#__PURE__*/_$template(`<div class=test-class>Hello`); // <-
+                const foo = _tmpl$();
+            */
+            TestCase {
+                source: r#"<div class="test-class">Hello</div>"#,
+                expected_id: None,
+                expected_template: Some(r#"<div class=test-class>Hello"#.to_string()),
+                expected_exprs_len: 0,
+                expected_text: false,
+            },
+            /* solidJS client side rendering result
+                import { template as _$template } from "solid-js/web";
+                var _tmpl$ = /*#__PURE__*/_$template(`<div>Hello`); // <-
+                const foo = _tmpl$();
+            */
+            TestCase {
+                source: r#"<div>Hello</div>"#,
+                expected_id: None,
+                expected_template: Some(r#"<div>Hello"#.to_string()),
+                expected_exprs_len: 0,
+                expected_text: false,
+            },
+            /* solidJS client side rendering result
+                import { template as _$template } from "solid-js/web";
+                var _tmpl$ = /*#__PURE__*/_$template(`<span class=highlight>Text`); // <-
+                const foo = _tmpl$();
+            */
+            TestCase {
+                source: r#"<span class="highlight">Text</span>"#,
+                expected_id: None,
+                expected_template: Some(r#"<span class=highlight>Text"#.to_string()),
+                expected_exprs_len: 0,
+                expected_text: false,
+            },
+        ];
+
+        for case in test_cases {
+            let allocator = Allocator::default();
+            let source_type = SourceType::jsx();
+
+            let parse_result = Parser::new(&allocator, case.source, source_type).parse();
+            let program = parse_result.program;
+
+            let semantic_result = SemanticBuilder::new(case.source)
+                .with_excess_capacity(2.0)
+                .build(&program);
+            let (symbols, scopes) = semantic_result.semantic.into_symbol_table_and_scope_tree();
+
+            if let ast::Statement::ExpressionStatement(expr_stmt) = &program.body[0] {
+                if let ast::Expression::JSXElement(jsx_element) = &expr_stmt.expression {
+                    let mut ctx = TraverseCtx::new(scopes, symbols, &allocator);
+                    let config = Config {
+                        generate: OutputType::Dom,
+                        ..Default::default()
+                    };
+                    let transform = JsxTransform::new(config);
+
+                    let result = transform.transform_element(jsx_element, &mut ctx);
+
+                    assert_eq!(
+                        result.id, case.expected_id,
+                        "Failed for source: {}",
+                        case.source
+                    );
+                    assert_eq!(
+                        result.template, case.expected_template,
+                        "Failed for source: {}",
+                        case.source
+                    );
+                    assert_eq!(
+                        result.exprs.len(),
+                        case.expected_exprs_len,
+                        "Failed for source: {}",
+                        case.source
+                    );
+                    assert_eq!(
+                        result.text, case.expected_text,
+                        "Failed for source: {}",
+                        case.source
+                    );
+                } else {
+                    panic!("Expected JSXElement for source: {}", case.source);
+                }
+            } else {
+                panic!("Expected ExpressionStatement for source: {}", case.source);
             }
         }
     }
