@@ -6,6 +6,7 @@ use oxc::{
 };
 
 pub mod config;
+mod dom;
 mod shared;
 
 pub use config::*;
