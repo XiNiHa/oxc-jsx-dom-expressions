@@ -1,4 +1,7 @@
-use oxc::span::Atom;
+use std::collections::{hash_map::Entry, HashMap};
+
+use oxc::{semantic::SymbolFlags, span::Atom};
+use oxc_traverse::{BoundIdentifier, TraverseCtx};
 
 pub fn jsx_text_to_str(t: &Atom) -> String {
     let mut buf = String::new();
@@ -24,4 +27,18 @@ pub fn jsx_text_to_str(t: &Atom) -> String {
         buf.push_str(line);
     }
     buf
+}
+
+pub fn register_import_method<'a>(
+    imports: &mut HashMap<(String, String), BoundIdentifier<'a>>,
+    name: &str,
+    module_name: &str,
+    ctx: &mut TraverseCtx<'a>,
+) -> BoundIdentifier<'a> {
+    match imports.entry((name.to_owned(), module_name.to_owned())) {
+        Entry::Occupied(entry) => entry.get().clone(),
+        Entry::Vacant(entry) => entry
+            .insert(ctx.generate_uid_in_root_scope(&format!("_$${}", name), SymbolFlags::Import))
+            .clone(),
+    }
 }
