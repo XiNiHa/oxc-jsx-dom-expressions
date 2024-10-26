@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 
 use html_escape::decode_html_entities;
 use oxc::{
@@ -258,6 +258,25 @@ pub struct Template<'a> {
 }
 
 impl<'a> TemplateCreationCtx<'a> {
+    pub fn register_import_method(
+        &mut self,
+        name: &str,
+        module_name: &str,
+        ctx: &mut TraverseCtx<'a>,
+    ) -> BoundIdentifier<'a> {
+        match self
+            .imports
+            .entry((name.to_owned(), module_name.to_owned()))
+        {
+            Entry::Occupied(entry) => entry.get().clone(),
+            Entry::Vacant(entry) => entry
+                .insert(
+                    ctx.generate_uid_in_root_scope(&format!("_$${}", name), SymbolFlags::Import),
+                )
+                .clone(),
+        }
+    }
+
     fn get_leading_stmts(
         &self,
         module_name: &str,

@@ -6,10 +6,7 @@ use oxc::{
 use oxc_traverse::TraverseCtx;
 
 use crate::{
-    shared::{
-        transform::{Template, TemplateCreationCtx, TransformResult},
-        utils::register_import_method,
-    },
+    shared::transform::{Template, TemplateCreationCtx, TransformResult},
     Config, OutputType,
 };
 
@@ -78,13 +75,9 @@ impl<'a> TransformResult<'a> {
         } else if wrap && self.dynamic && !config.memo_wrapper.is_empty() {
             traverse_ctx.ast.expression_call(
                 SPAN,
-                register_import_method(
-                    &mut creation_ctx.imports,
-                    &config.memo_wrapper,
-                    &config.module_name,
-                    traverse_ctx,
-                )
-                .create_read_expression(traverse_ctx),
+                creation_ctx
+                    .register_import_method(&config.memo_wrapper, &config.module_name, traverse_ctx)
+                    .create_read_expression(traverse_ctx),
                 NONE,
                 traverse_ctx.ast.vec_from_iter(
                     self.exprs
@@ -141,13 +134,9 @@ impl<'a> TransformResult<'a> {
         let decl_init = match config.hydratable {
             true => traverse_ctx.ast.expression_call(
                 SPAN,
-                register_import_method(
-                    &mut creation_ctx.imports,
-                    "getNextElement",
-                    &config.module_name,
-                    traverse_ctx,
-                )
-                .create_expression(ReferenceFlags::Read, traverse_ctx),
+                creation_ctx
+                    .register_import_method("getNextElement", &config.module_name, traverse_ctx)
+                    .create_expression(ReferenceFlags::Read, traverse_ctx),
                 NONE,
                 match template_id {
                     Some(id) => traverse_ctx.ast.vec1(traverse_ctx.ast.argument_expression(
