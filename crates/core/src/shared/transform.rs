@@ -14,7 +14,7 @@ use oxc_traverse::{BoundIdentifier, Traverse, TraverseCtx};
 
 use crate::{shared::utils::jsx_text_to_str, Config, OutputType};
 
-use super::utils::filter_children;
+use super::utils::{filter_children, DynamicChecker};
 
 pub struct JsxTransform<'a> {
     config: Config,
@@ -39,6 +39,7 @@ pub struct TransformInfo {
     pub skip_id: bool,
     pub last_element: bool,
     pub do_not_escape: bool,
+    pub component_child: bool,
 }
 
 pub struct TransformResult<'a> {
@@ -150,18 +151,55 @@ impl<'a> JsxTransform<'a> {
                     skip_template: false,
                 })
             }
-            ast::JSXChild::Spread(spread) => {
-                // TODO
-                Some(TransformResult {
-                    id: None,
-                    template: None,
-                    exprs: ctx.ast.vec(),
-                    declarators: ctx.ast.vec(),
-                    text: false,
-                    dynamic: false,
-                    skip_template: false,
-                })
-            }
+            ast::JSXChild::Spread(spread) => Some(
+                if DynamicChecker::new()
+                    .check_member(true)
+                    .native(!info.component_child)
+                    .check(&spread.expression)
+                {
+                    TransformResult {
+                        exprs: ctx.ast.vec1(ctx.ast.expression_arrow_function(
+                            SPAN,
+                            true,
+                            false,
+                            NONE,
+                            ctx.ast.formal_parameters(
+                                SPAN,
+                                ast::FormalParameterKind::ArrowFormalParameters,
+                                ctx.ast.vec(),
+                                NONE,
+                            ),
+                            NONE,
+                            ctx.ast.function_body(
+                                SPAN,
+                                ctx.ast.vec(),
+                                ctx.ast.vec1(ctx.ast.statement_expression(
+                                    SPAN,
+                                    ctx.ast.move_expression(&mut spread.expression),
+                                )),
+                            ),
+                        )),
+                        dynamic: true,
+                        id: None,
+                        template: None,
+                        declarators: ctx.ast.vec(),
+                        text: false,
+                        skip_template: false,
+                    }
+                } else {
+                    TransformResult {
+                        exprs: ctx
+                            .ast
+                            .vec1(ctx.ast.move_expression(&mut spread.expression)),
+                        id: None,
+                        template: None,
+                        declarators: ctx.ast.vec(),
+                        text: false,
+                        dynamic: false,
+                        skip_template: false,
+                    }
+                },
+            ),
         }
     }
 
