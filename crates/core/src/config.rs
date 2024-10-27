@@ -15,6 +15,7 @@ pub struct Config {
     pub validate: bool,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum OutputType {
     Dom,
 }

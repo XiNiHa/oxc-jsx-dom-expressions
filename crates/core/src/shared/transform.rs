@@ -2,7 +2,7 @@ use std::collections::{hash_map::Entry, HashMap};
 
 use html_escape::decode_html_entities;
 use oxc::{
-    allocator::{IntoIn, Vec as OxcVec},
+    allocator::Vec as OxcVec,
     ast::{
         ast::{self},
         NONE,
@@ -95,11 +95,8 @@ impl<'a> Traverse<'a> for JsxTransform<'a> {
     }
 
     fn exit_program(&mut self, node: &mut ast::Program<'a>, ctx: &mut TraverseCtx<'a>) {
-        node.body.splice(
-            0..0,
-            self.template_creation_ctx
-                .get_leading_stmts(&self.config.module_name, ctx),
-        );
+        self.template_creation_ctx
+            .postprocess(node, &self.config, ctx);
     }
 }
 
@@ -277,20 +274,24 @@ impl<'a> TemplateCreationCtx<'a> {
         }
     }
 
-    fn get_leading_stmts(
+    fn postprocess(
         &self,
-        module_name: &str,
+        program: &mut ast::Program<'a>,
+        config: &Config,
         ctx: &mut TraverseCtx<'a>,
-    ) -> Vec<ast::Statement<'a>> {
-        let mut stmts = self.get_imports(ctx);
+    ) {
+        let mut leading_stmts = self.get_imports(ctx);
 
         if !self.templates.is_empty() {
-            let (tmpl_fn, tmpl_fn_import) = self.get_template_fn(module_name, ctx);
-            stmts.insert(0, tmpl_fn_import);
-            stmts.push(self.get_template_decl(&tmpl_fn, ctx))
+            let (tmpl_fn, tmpl_fn_import) = self.get_template_fn(&config.module_name, ctx);
+            leading_stmts.insert(0, tmpl_fn_import);
+            // TODO: validate templates (see https://github.com/ryansolid/dom-expressions/blob/b7a9d97027da77cc8f7d774edb655b074a3e5d41/packages/babel-plugin-jsx-dom-expressions/src/shared/postprocess.js#L20-L37)
+            if let Some(decl) = self.get_template_decl(&tmpl_fn, OutputType::Dom, ctx) {
+                leading_stmts.push(decl);
+            }
         }
 
-        stmts
+        program.body.splice(0..0, leading_stmts);
     }
 
     fn get_imports(&self, ctx: &mut TraverseCtx<'a>) -> Vec<ast::Statement<'a>> {
@@ -351,46 +352,22 @@ impl<'a> TemplateCreationCtx<'a> {
     fn get_template_decl(
         &self,
         template_fn: &BoundIdentifier<'a>,
+        output_type: OutputType,
         ctx: &mut TraverseCtx<'a>,
-    ) -> ast::Statement<'a> {
-        ctx.ast.statement_declaration(ctx.ast.declaration_variable(
-            SPAN,
-            ast::VariableDeclarationKind::Var,
-            ctx.ast.vec_from_iter(self.templates.iter().map(|tmpl| {
-                ctx.ast.variable_declarator(
-                    SPAN,
-                    ast::VariableDeclarationKind::Var,
-                    ctx.ast.binding_pattern(
-                        ctx.ast
-                            .binding_pattern_kind_binding_identifier(SPAN, tmpl.id.clone()),
-                        NONE,
-                        false,
-                    ),
-                    Some(ctx.ast.expression_call(
-                        SPAN,
-                        template_fn.create_read_expression(ctx),
-                        NONE,
-                        ctx.ast.vec1(ctx.ast.argument_expression(
-                            ctx.ast.expression_template_literal(
-                                SPAN,
-                                ctx.ast.vec1(ctx.ast.template_element(
-                                    SPAN,
-                                    true,
-                                    ast::TemplateElementValue {
-                                        raw: tmpl.template.clone().into_in(ctx.ast.allocator),
-                                        cooked: None,
-                                    },
-                                )),
-                                ctx.ast.vec(),
-                            ),
-                        )),
-                        false,
-                    )),
-                    false,
-                )
-            })),
-            false,
-        ))
+    ) -> Option<ast::Statement<'a>> {
+        let decls = match output_type {
+            OutputType::Dom => self.create_template_declarators_dom(template_fn, ctx),
+        };
+
+        match decls.is_empty() {
+            true => None,
+            false => Some(ctx.ast.statement_declaration(ctx.ast.declaration_variable(
+                SPAN,
+                ast::VariableDeclarationKind::Var,
+                decls,
+                false,
+            ))),
+        }
     }
 }
 
