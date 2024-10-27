@@ -1,13 +1,14 @@
-use oxc::ast::ast;
+use oxc::{ast::ast, semantic::SymbolFlags};
 use oxc_traverse::TraverseCtx;
 
 use crate::shared::transform::{JsxTransform, TransformInfo, TransformResult};
 
-impl<'a> JsxTransform {
+impl<'a> JsxTransform<'a> {
     pub fn transform_element_dom(
-        &self,
+        &mut self,
         el: &ast::JSXElement<'a>,
         ctx: &mut TraverseCtx<'a>,
+        info: &TransformInfo,
     ) -> TransformResult<'a> {
         let tag_name = match &el.opening_element.name {
             ast::JSXElementName::Identifier(ident) => ident.name.clone(),
@@ -17,7 +18,9 @@ impl<'a> JsxTransform {
                     id: None,
                     template: None,
                     exprs: ctx.ast.vec(),
+                    declarators: ctx.ast.vec(),
                     text: false,
+                    dynamic: false,
                     skip_template: false,
                 };
             }
@@ -30,10 +33,18 @@ impl<'a> JsxTransform {
         let template = format!("<{}{}>{}", tag_name, attributes, child_templates);
 
         TransformResult {
-            id: None,
+            id: match info.skip_id {
+                true => None,
+                false => Some(
+                    ctx.generate_uid_in_current_scope("el$", SymbolFlags::FunctionScopedVariable)
+                        .name,
+                ),
+            },
             template: Some(template),
             exprs: ctx.ast.vec(),
+            declarators: ctx.ast.vec(),
             text: false,
+            dynamic: false,
             skip_template: false,
         }
     }
@@ -69,7 +80,7 @@ impl<'a> JsxTransform {
 
     /// Process children and collect their templates
     fn generate_child_templates_dom(
-        &self,
+        &mut self,
         children: &[ast::JSXChild<'a>],
         ctx: &mut TraverseCtx<'a>,
     ) -> String {

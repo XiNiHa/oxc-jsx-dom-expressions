@@ -1,7 +1,7 @@
 use std::convert::Infallible;
 
 use oxc::{
-    allocator::Allocator, codegen::Codegen, parser::Parser, semantic::SemanticBuilder,
+    allocator::Allocator, codegen::CodeGenerator, parser::Parser, semantic::SemanticBuilder,
     span::SourceType,
 };
 
@@ -41,5 +41,5 @@ pub fn transform(source: String, config: Config) -> Result<String, Infallible> {
         scopes,
     );
 
-    Ok(Codegen::new().build(&program).code)
+    Ok(CodeGenerator::new().build(&program).code)
 }
