@@ -5,14 +5,14 @@ version = "0.0.0"
 
 [dependencies]
 html-escape = "0.2.13"
-oxc = { version = "0.31.0", features = [
+oxc = { version = "0.34.0", features = [
 	"parser",
 	"semantic",
 	"transformer",
 	"codegen",
 	"sourcemap",
 ] }
-oxc_traverse = "0.31.0"
+oxc_traverse = "0.34.0"
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"

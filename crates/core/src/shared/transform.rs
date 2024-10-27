@@ -305,7 +305,7 @@ impl<'a> TemplateCreationCtx<'a> {
                                 .vec1(ctx.ast.import_declaration_specifier_import_specifier(
                                     SPAN,
                                     ctx.ast.module_export_name_identifier_name(SPAN, name),
-                                    local.create_binding_identifier(),
+                                    local.create_binding_identifier(ctx),
                                     ast::ImportOrExportKind::Value,
                                 )),
                         ),
@@ -324,7 +324,7 @@ impl<'a> TemplateCreationCtx<'a> {
         ctx: &mut TraverseCtx<'a>,
     ) -> (BoundIdentifier<'a>, ast::Statement<'a>) {
         let template_fn = ctx.generate_uid_in_root_scope("$template", SymbolFlags::Import);
-        let binding_ident = template_fn.create_binding_identifier();
+        let binding_ident = template_fn.create_binding_identifier(ctx);
 
         (
             template_fn,
@@ -461,7 +461,7 @@ mod transform_tests {
             let parse_result = Parser::new(&allocator, case.source, source_type).parse();
             let program = parse_result.program;
 
-            let semantic_result = SemanticBuilder::new(case.source)
+            let semantic_result = SemanticBuilder::new()
                 .with_excess_capacity(2.0)
                 .build(&program);
             let (symbols, scopes) = semantic_result.semantic.into_symbol_table_and_scope_tree();
