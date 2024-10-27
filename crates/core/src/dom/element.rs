@@ -1,12 +1,15 @@
 use oxc::{ast::ast, semantic::SymbolFlags};
 use oxc_traverse::TraverseCtx;
 
-use crate::shared::transform::{JsxTransform, TransformInfo, TransformResult};
+use crate::shared::{
+    transform::{JsxTransform, TransformInfo, TransformResult},
+    utils::filter_children,
+};
 
 impl<'a> JsxTransform<'a> {
     pub fn transform_element_dom(
         &mut self,
-        el: &ast::JSXElement<'a>,
+        el: &mut ast::JSXElement<'a>,
         ctx: &mut TraverseCtx<'a>,
         info: &TransformInfo,
     ) -> TransformResult<'a> {
@@ -27,7 +30,7 @@ impl<'a> JsxTransform<'a> {
         };
 
         let attributes = self.generate_attributes_dom(&el.opening_element.attributes);
-        let child_templates = self.generate_child_templates_dom(&el.children, ctx);
+        let child_templates = self.generate_child_templates_dom(&mut el.children, ctx);
 
         // TODO
         let template = format!("<{}{}>{}", tag_name, attributes, child_templates);
@@ -81,12 +84,11 @@ impl<'a> JsxTransform<'a> {
     /// Process children and collect their templates
     fn generate_child_templates_dom(
         &mut self,
-        children: &[ast::JSXChild<'a>],
+        children: &mut [ast::JSXChild<'a>],
         ctx: &mut TraverseCtx<'a>,
     ) -> String {
         let info = TransformInfo::default();
-        children
-            .iter()
+        filter_children(children)
             .filter_map(|child| self.transform_node(child, ctx, &info)?.template)
             .collect::<String>()
     }

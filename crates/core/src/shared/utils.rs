@@ -175,3 +175,15 @@ impl IsDynamic for ast::JSXExpression<'_> {
         walk::walk_jsx_expression(visitor, self);
     }
 }
+
+pub fn filter_children<'a, 'b>(
+    children: &'b mut [ast::JSXChild<'a>],
+) -> impl Iterator<Item = &'b mut ast::JSXChild<'a>> {
+    children.iter_mut().filter(|child| match child {
+        ast::JSXChild::ExpressionContainer(child) => {
+            !matches!(child.expression, ast::JSXExpression::EmptyExpression(_))
+        }
+        ast::JSXChild::Text(child) => !child.value.trim().is_empty(),
+        _ => true,
+    })
+}

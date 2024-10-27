@@ -14,6 +14,8 @@ use oxc_traverse::{BoundIdentifier, Traverse, TraverseCtx};
 
 use crate::{shared::utils::jsx_text_to_str, Config, OutputType};
 
+use super::utils::filter_children;
+
 pub struct JsxTransform<'a> {
     config: Config,
     template_creation_ctx: TemplateCreationCtx<'a>,
@@ -61,7 +63,7 @@ impl<'a> Traverse<'a> for JsxTransform<'a> {
                     return;
                 };
                 let result = self.transform_node(
-                    &ctx.ast.jsx_child_from_jsx_element(el),
+                    &mut ctx.ast.jsx_child_from_jsx_element(el),
                     ctx,
                     &Default::default(),
                 );
@@ -76,7 +78,7 @@ impl<'a> Traverse<'a> for JsxTransform<'a> {
                     return;
                 };
                 let result = self.transform_node(
-                    &ctx.ast.jsx_child_from_jsx_fragment(frag),
+                    &mut ctx.ast.jsx_child_from_jsx_fragment(frag),
                     ctx,
                     &TransformInfo {
                         top_level: true,
@@ -106,14 +108,14 @@ impl<'a> Traverse<'a> for JsxTransform<'a> {
 impl<'a> JsxTransform<'a> {
     pub fn transform_node(
         &mut self,
-        node: &ast::JSXChild<'a>,
+        node: &mut ast::JSXChild<'a>,
         ctx: &mut TraverseCtx<'a>,
         info: &TransformInfo,
     ) -> Option<TransformResult<'a>> {
         match node {
             ast::JSXChild::Element(el) => Some(self.transform_element(el, ctx, info)),
             ast::JSXChild::Fragment(frag) => {
-                Some(self.transform_fragment_children(&frag.children, ctx, info))
+                Some(self.transform_fragment_children(&mut frag.children, ctx, info))
             }
             ast::JSXChild::Text(text) => match jsx_text_to_str(&text.value) {
                 str if str.is_empty() => None,
@@ -165,7 +167,7 @@ impl<'a> JsxTransform<'a> {
 
     pub fn transform_element(
         &mut self,
-        el: &ast::JSXElement<'a>,
+        el: &mut ast::JSXElement<'a>,
         ctx: &mut TraverseCtx<'a>,
         info: &TransformInfo,
     ) -> TransformResult<'a> {
@@ -176,22 +178,13 @@ impl<'a> JsxTransform<'a> {
 
     pub fn transform_fragment_children(
         &mut self,
-        children: &OxcVec<'a, ast::JSXChild<'a>>,
+        children: &mut OxcVec<'a, ast::JSXChild<'a>>,
         ctx: &mut TraverseCtx<'a>,
         info: &TransformInfo,
     ) -> TransformResult<'a> {
-        let filtered = children.iter().filter(|child| match child {
-            ast::JSXChild::ExpressionContainer(container) => {
-                !matches!(container.expression, ast::JSXExpression::EmptyExpression(_))
-            }
-            // TODO: this doesn't 100% match with the original behavior
-            // (https://github.com/ryansolid/dom-expressions/blob/388985beae617521fe7daff06759e9d704b852fa/packages/babel-plugin-jsx-dom-expressions/src/shared/utils.js#L196)
-            ast::JSXChild::Text(text) => !text.value.trim().is_empty(),
-            _ => true,
-        });
         let child_nodes = ctx
             .ast
-            .vec_from_iter(filtered.filter_map(|child| match child {
+            .vec_from_iter(filter_children(children).filter_map(|child| match child {
                 ast::JSXChild::Text(text) => {
                     let v = jsx_text_to_str(&text.value);
                     let v = decode_html_entities(&v);
@@ -459,15 +452,15 @@ mod transform_tests {
             let source_type = SourceType::jsx();
 
             let parse_result = Parser::new(&allocator, case.source, source_type).parse();
-            let program = parse_result.program;
+            let mut program = parse_result.program;
 
             let semantic_result = SemanticBuilder::new()
                 .with_excess_capacity(2.0)
                 .build(&program);
             let (symbols, scopes) = semantic_result.semantic.into_symbol_table_and_scope_tree();
 
-            if let ast::Statement::ExpressionStatement(expr_stmt) = &program.body[0] {
-                if let ast::Expression::JSXElement(jsx_element) = &expr_stmt.expression {
+            if let Some(ast::Statement::ExpressionStatement(expr_stmt)) = program.body.get_mut(0) {
+                if let ast::Expression::JSXElement(jsx_element) = &mut expr_stmt.expression {
                     let mut ctx = TraverseCtx::new(scopes, symbols, &allocator);
                     let config = Config {
                         generate: OutputType::Dom,
