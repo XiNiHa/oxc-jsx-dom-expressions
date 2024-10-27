@@ -18,7 +18,7 @@ pub fn transform(source: String, config: Config) -> Result<String, Infallible> {
 
     let parse_result = Parser::new(&allocator, &source, source_type).parse();
     let mut program = parse_result.program;
-    let semantic_result = SemanticBuilder::new(&source)
+    let semantic_result = SemanticBuilder::new()
         .with_excess_capacity(2.0)
         .build(&program);
     let (symbols, scopes) = semantic_result.semantic.into_symbol_table_and_scope_tree();
