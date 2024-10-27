@@ -1,9 +1,10 @@
 use oxc::{
+    allocator::{IntoIn, Vec as OxcVec},
     ast::{ast, NONE},
     semantic::{ReferenceFlags, SymbolFlags},
     span::{Atom, SPAN},
 };
-use oxc_traverse::TraverseCtx;
+use oxc_traverse::{BoundIdentifier, TraverseCtx};
 
 use crate::{
     shared::transform::{Template, TemplateCreationCtx, TransformResult},
@@ -159,5 +160,52 @@ impl<'a> TransformResult<'a> {
         };
 
         self.declarators.push((id.clone(), decl_init));
+    }
+}
+
+impl<'a> TemplateCreationCtx<'a> {
+    pub fn create_template_declarators_dom(
+        &self,
+        template_fn: &BoundIdentifier<'a>,
+        ctx: &mut TraverseCtx<'a>,
+    ) -> OxcVec<'a, ast::VariableDeclarator<'a>> {
+        ctx.ast.vec_from_iter(
+            self.templates
+                .iter()
+                .filter(|tmpl| tmpl.renderer == OutputType::Dom)
+                .map(|tmpl| {
+                    ctx.ast.variable_declarator(
+                        SPAN,
+                        ast::VariableDeclarationKind::Var,
+                        ctx.ast.binding_pattern(
+                            ctx.ast
+                                .binding_pattern_kind_binding_identifier(SPAN, tmpl.id.clone()),
+                            NONE,
+                            false,
+                        ),
+                        Some(ctx.ast.expression_call(
+                            SPAN,
+                            template_fn.create_read_expression(ctx),
+                            NONE,
+                            ctx.ast.vec1(ctx.ast.argument_expression(
+                                ctx.ast.expression_template_literal(
+                                    SPAN,
+                                    ctx.ast.vec1(ctx.ast.template_element(
+                                        SPAN,
+                                        true,
+                                        ast::TemplateElementValue {
+                                            raw: tmpl.template.clone().into_in(ctx.ast.allocator),
+                                            cooked: None,
+                                        },
+                                    )),
+                                    ctx.ast.vec(),
+                                ),
+                            )),
+                            false,
+                        )),
+                        false,
+                    )
+                }),
+        )
     }
 }
