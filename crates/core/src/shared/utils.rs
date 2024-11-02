@@ -29,7 +29,7 @@ pub fn jsx_text_to_str(t: &Atom) -> String {
     buf
 }
 
-trait IsDynamic {
+pub trait IsDynamic {
     fn walk<'a>(&'a self, visitor: &mut impl Visit<'a>);
 }
 

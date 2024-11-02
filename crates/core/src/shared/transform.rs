@@ -2,17 +2,19 @@ use std::collections::{hash_map::Entry, HashMap};
 
 use html_escape::decode_html_entities;
 use oxc::{
-    allocator::{IntoIn, Vec as OxcVec},
+    allocator::{CloneIn, IntoIn, Vec as OxcVec},
     ast::{
         ast::{self},
         NONE,
     },
-    semantic::SymbolFlags,
+    semantic::{ScopeFlags, SymbolFlags},
     span::{Atom, SPAN},
 };
 use oxc_traverse::{BoundIdentifier, Traverse, TraverseCtx};
 
 use crate::{shared::utils::jsx_text_to_str, Config, OutputType};
+
+use super::utils::DynamicChecker;
 
 pub struct JsxTransform<'a> {
     config: Config,
@@ -37,6 +39,8 @@ pub struct TransformInfo {
     pub skip_id: bool,
     pub last_element: bool,
     pub do_not_escape: bool,
+    pub component_child: bool,
+    pub fragment_child: bool,
 }
 
 pub struct TransformResult<'a> {
@@ -137,14 +141,101 @@ impl<'a> JsxTransform<'a> {
                 }),
             },
             ast::JSXChild::ExpressionContainer(container) => {
-                // TODO
+                if matches!(container.expression, ast::JSXExpression::EmptyExpression(_)) {
+                    return None;
+                }
+                let is_dynamic = DynamicChecker::new()
+                    .check_member(true)
+                    .check_tags(info.component_child)
+                    .native(!info.component_child);
+                if is_dynamic.check(&container.expression) {
+                    return Some(TransformResult {
+                        id: None,
+                        template: None,
+                        exprs: ctx.ast.vec1(
+                            container
+                                .expression
+                                .to_expression()
+                                .clone_in(ctx.ast.allocator),
+                        ),
+                        text: false,
+                        skip_template: false,
+                        declarators: ctx.ast.vec(),
+                        dynamic: false,
+                    });
+                }
+                let (statement, result) = match &container.expression {
+                    ast::JSXExpression::LogicalExpression(logical_expression) => self
+                        .transform_logical_expression(
+                            logical_expression,
+                            ctx,
+                            info.component_child || info.fragment_child,
+                            false,
+                        ),
+                    ast::JSXExpression::ConditionalExpression(conditional_expression) => self
+                        .transform_conditional_expression(
+                            conditional_expression,
+                            ctx,
+                            info.component_child || info.fragment_child,
+                            false,
+                        ),
+                    ast::JSXExpression::CallExpression(call_expression)
+                        if !info.component_child
+                            && !call_expression.callee.is_call_expression()
+                            && !call_expression.callee.is_member_expression()
+                            && call_expression.arguments.is_empty() =>
+                    {
+                        (None, call_expression.callee.clone_in(ctx.ast.allocator))
+                    }
+                    _ => (
+                        None,
+                        container
+                            .expression
+                            .to_expression()
+                            .clone_in(ctx.ast.allocator),
+                    ),
+                };
+                let expr = if let Some(statement) = statement {
+                    ctx.ast.expression_call(
+                        SPAN,
+                        ctx.ast.expression_from_arrow_function(
+                            ctx.ast.arrow_function_expression_with_scope_id(
+                                SPAN,
+                                false,
+                                false,
+                                NONE,
+                                ctx.ast.formal_parameters(
+                                    SPAN,
+                                    ast::FormalParameterKind::ArrowFormalParameters,
+                                    ctx.ast.vec(),
+                                    NONE,
+                                ),
+                                NONE,
+                                ctx.ast.function_body(
+                                    SPAN,
+                                    ctx.ast.vec(),
+                                    ctx.ast.vec_from_iter([
+                                        statement,
+                                        ctx.ast.statement_return(SPAN, Some(result)),
+                                    ]),
+                                ),
+                                ctx.create_child_scope_of_current(ScopeFlags::Arrow),
+                            ),
+                        ),
+                        NONE,
+                        ctx.ast.vec(),
+                        false,
+                    )
+                } else {
+                    result
+                };
                 Some(TransformResult {
                     id: None,
                     template: None,
-                    exprs: ctx.ast.vec(),
+                    exprs: ctx.ast.vec1(expr),
                     declarators: ctx.ast.vec(),
                     text: false,
-                    dynamic: false,
+                    dynamic: true,
                     skip_template: false,
                 })
             }
@@ -229,6 +320,380 @@ impl<'a> JsxTransform<'a> {
             dynamic: false,
             skip_template: false,
         }
+    }
+
+    fn transform_short_circuit(
+        &mut self,
+        memo: BoundIdentifier<'a>,
+        transformed: ast::Expression<'a>,
+        short_circuit: Option<(BoundIdentifier<'a>, ast::Expression<'a>)>,
+        ctx: &mut TraverseCtx<'a>,
+        deep: bool,
+    ) -> (Option<ast::Statement<'a>>, ast::Expression<'a>) {
+        if let Some((identifier, condition)) = short_circuit {
+            let callee = ctx.ast.expression_from_arrow_function(
+                ctx.ast.arrow_function_expression_with_scope_id(
+                    SPAN,
+                    true,
+                    false,
+                    NONE,
+                    ctx.ast.formal_parameters(
+                        SPAN,
+                        ast::FormalParameterKind::ArrowFormalParameters,
+                        ctx.ast.vec(),
+                        NONE,
+                    ),
+                    NONE,
+                    ctx.ast.function_body(
+                        SPAN,
+                        ctx.ast.vec(),
+                        ctx.ast.vec1(ctx.ast.statement_expression(SPAN, condition)),
+                    ),
+                    ctx.create_child_scope_of_current(ScopeFlags::Arrow),
+                ),
+            );
+            let statement = ctx.ast.statement_declaration(ctx.ast.declaration_variable(
+                SPAN,
+                ast::VariableDeclarationKind::Var,
+                ctx.ast.vec1(ctx.ast.variable_declarator(
+                    SPAN,
+                    ast::VariableDeclarationKind::Var,
+                    identifier.create_binding_pattern(ctx),
+                    Some(if self.config.memo_wrapper.is_empty() {
+                        callee
+                    } else {
+                        ctx.ast.expression_call(
+                            SPAN,
+                            memo.create_read_expression(ctx),
+                            NONE,
+                            ctx.ast.vec1(ctx.ast.argument_expression(callee)),
+                            false,
+                        )
+                    }),
+                    false,
+                )),
+                false,
+            ));
+            let result = ctx.ast.expression_from_arrow_function(
+                ctx.ast.arrow_function_expression_with_scope_id(
+                    SPAN,
+                    true,
+                    false,
+                    NONE,
+                    ctx.ast.formal_parameters(
+                        SPAN,
+                        ast::FormalParameterKind::ArrowFormalParameters,
+                        ctx.ast.vec(),
+                        NONE,
+                    ),
+                    NONE,
+                    ctx.ast.function_body(
+                        SPAN,
+                        ctx.ast.vec(),
+                        ctx.ast
+                            .vec1(ctx.ast.statement_expression(SPAN, transformed)),
+                    ),
+                    ctx.create_child_scope_of_current(ScopeFlags::Arrow),
+                ),
+            );
+            if deep {
+                let scope_id = ctx.create_child_scope_of_current(ScopeFlags::Arrow);
+                (
+                    None,
+                    ctx.ast.expression_call(
+                        SPAN,
+                        ctx.ast.expression_from_arrow_function(
+                            ctx.ast.arrow_function_expression_with_scope_id(
+                                SPAN,
+                                false,
+                                false,
+                                NONE,
+                                ctx.ast.formal_parameters(
+                                    SPAN,
+                                    ast::FormalParameterKind::ArrowFormalParameters,
+                                    ctx.ast.vec(),
+                                    NONE,
+                                ),
+                                NONE,
+                                ctx.ast.function_body(
+                                    SPAN,
+                                    ctx.ast.vec(),
+                                    ctx.ast.vec_from_iter([
+                                        statement,
+                                        ctx.ast.statement_expression(SPAN, result),
+                                    ]),
+                                ),
+                                scope_id,
+                            ),
+                        ),
+                        NONE,
+                        ctx.ast.vec(),
+                        false,
+                    ),
+                )
+            } else {
+                (Some(statement), result)
+            }
+        } else {
+            (
+                None,
+                if deep {
+                    transformed
+                } else {
+                    ctx.ast.expression_from_arrow_function(
+                        ctx.ast.arrow_function_expression_with_scope_id(
+                            SPAN,
+                            true,
+                            false,
+                            NONE,
+                            ctx.ast.formal_parameters(
+                                SPAN,
+                                ast::FormalParameterKind::ArrowFormalParameters,
+                                ctx.ast.vec(),
+                                NONE,
+                            ),
+                            NONE,
+                            ctx.ast.function_body(
+                                SPAN,
+                                ctx.ast.vec(),
+                                ctx.ast
+                                    .vec1(ctx.ast.statement_expression(SPAN, transformed)),
+                            ),
+                            ctx.create_child_scope_of_current(ScopeFlags::Arrow),
+                        ),
+                    )
+                },
+            )
+        }
+    }
+
+    pub fn transform_logical_expression(
+        &mut self,
+        logical_expression: &ast::LogicalExpression<'a>,
+        ctx: &mut TraverseCtx<'a>,
+        inline: bool,
+        deep: bool,
+    ) -> (Option<ast::Statement<'a>>, ast::Expression<'a>) {
+        let memo = self.template_creation_ctx.register_import_method(
+            &self.config.memo_wrapper,
+            &self.config.module_name,
+            ctx,
+        );
+        let (transformed, short_circuit) =
+            if matches!(logical_expression.operator, ast::LogicalOperator::And)
+                && DynamicChecker::new()
+                    .check_call_expressions(true)
+                    .check_tags(true)
+                    .check(&logical_expression.right)
+                && DynamicChecker::new()
+                    .check_call_expressions(true)
+                    .check_member(true)
+                    .check(&logical_expression.left)
+            {
+                let left = logical_expression.left.clone_in(&ctx.ast.allocator);
+                let condition = if matches!(left, ast::Expression::BinaryExpression(_)) {
+                    left
+                } else {
+                    ctx.ast.expression_unary(
+                        SPAN,
+                        ast::UnaryOperator::LogicalNot,
+                        ctx.ast
+                            .expression_unary(SPAN, ast::UnaryOperator::LogicalNot, left),
+                    )
+                };
+                let (callee, short_circuit) = if inline {
+                    (
+                        ctx.ast.expression_call(
+                            SPAN,
+                            memo.create_read_expression(ctx),
+                            NONE,
+                            ctx.ast.vec1(ctx.ast.argument_expression(
+                                ctx.ast.expression_from_arrow_function(
+                                    ctx.ast.arrow_function_expression_with_scope_id(
+                                        SPAN,
+                                        true,
+                                        false,
+                                        NONE,
+                                        ctx.ast.formal_parameters(
+                                            SPAN,
+                                            ast::FormalParameterKind::ArrowFormalParameters,
+                                            ctx.ast.vec(),
+                                            NONE,
+                                        ),
+                                        NONE,
+                                        ctx.ast.function_body(
+                                            SPAN,
+                                            ctx.ast.vec(),
+                                            ctx.ast.vec1(
+                                                ctx.ast.statement_expression(SPAN, condition),
+                                            ),
+                                        ),
+                                        ctx.create_child_scope_of_current(ScopeFlags::Arrow),
+                                    ),
+                                ),
+                            )),
+                            false,
+                        ),
+                        None,
+                    )
+                } else {
+                    let identifier = ctx
+                        .generate_uid_in_current_scope("_c$", SymbolFlags::FunctionScopedVariable);
+                    (
+                        identifier.create_read_expression(ctx),
+                        Some((identifier, condition)),
+                    )
+                };
+                (
+                    ctx.ast.expression_logical(
+                        SPAN,
+                        ctx.ast
+                            .expression_call(SPAN, callee, NONE, ctx.ast.vec(), false),
+                        logical_expression.operator,
+                        logical_expression.right.clone_in(ctx.ast.allocator),
+                    ),
+                    short_circuit,
+                )
+            } else {
+                (
+                    ctx.ast
+                        .expression_from_logical(logical_expression.clone_in(ctx.ast.allocator)),
+                    None,
+                )
+            };
+        self.transform_short_circuit(memo, transformed, short_circuit, ctx, deep)
+    }
+
+    pub fn transform_conditional_expression(
+        &mut self,
+        conditional_expression: &ast::ConditionalExpression<'a>,
+        ctx: &mut TraverseCtx<'a>,
+        inline: bool,
+        deep: bool,
+    ) -> (Option<ast::Statement<'a>>, ast::Expression<'a>) {
+        let memo = self.template_creation_ctx.register_import_method(
+            &self.config.memo_wrapper,
+            &self.config.module_name,
+            ctx,
+        );
+        let tags_checker = DynamicChecker::new()
+            .check_call_expressions(true)
+            .check_tags(true);
+        let (transformed, short_circuit) = if (tags_checker
+            .check(&conditional_expression.consequent)
+            || tags_checker.check(&conditional_expression.alternate))
+            && DynamicChecker::new()
+                .check_call_expressions(true)
+                .check_member(true)
+                .check(&conditional_expression.test)
+        {
+            let test = conditional_expression.test.clone_in(&ctx.ast.allocator);
+            let condition = if matches!(test, ast::Expression::BinaryExpression(_)) {
+                test
+            } else {
+                ctx.ast.expression_unary(
+                    SPAN,
+                    ast::UnaryOperator::LogicalNot,
+                    ctx.ast
+                        .expression_unary(SPAN, ast::UnaryOperator::LogicalNot, test),
+                )
+            };
+            let consequent = conditional_expression
+                .consequent
+                .clone_in(ctx.ast.allocator);
+            let new_consequent = match consequent {
+                ast::Expression::ConditionalExpression(conditional_expression) => {
+                    self.transform_conditional_expression(
+                        &conditional_expression,
+                        ctx,
+                        inline,
+                        true,
+                    )
+                    .1
+                }
+                ast::Expression::LogicalExpression(logical_expression) => {
+                    self.transform_logical_expression(&logical_expression, ctx, inline, true)
+                        .1
+                }
+                _ => consequent,
+            };
+            let alternate = conditional_expression.alternate.clone_in(ctx.ast.allocator);
+            let new_alternate = match alternate {
+                ast::Expression::ConditionalExpression(conditional_expression) => {
+                    self.transform_conditional_expression(
+                        &conditional_expression,
+                        ctx,
+                        inline,
+                        true,
+                    )
+                    .1
+                }
+                ast::Expression::LogicalExpression(logical_expression) => {
+                    self.transform_logical_expression(&logical_expression, ctx, inline, true)
+                        .1
+                }
+                _ => alternate,
+            };
+            let (callee, short_circuit) = if inline {
+                (
+                    ctx.ast.expression_call(
+                        SPAN,
+                        memo.create_read_expression(ctx),
+                        NONE,
+                        ctx.ast.vec1(ctx.ast.argument_expression(
+                            ctx.ast.expression_from_arrow_function(
+                                ctx.ast.arrow_function_expression_with_scope_id(
+                                    SPAN,
+                                    true,
+                                    false,
+                                    NONE,
+                                    ctx.ast.formal_parameters(
+                                        SPAN,
+                                        ast::FormalParameterKind::ArrowFormalParameters,
+                                        ctx.ast.vec(),
+                                        NONE,
+                                    ),
+                                    NONE,
+                                    ctx.ast.function_body(
+                                        SPAN,
+                                        ctx.ast.vec(),
+                                        ctx.ast.vec1(ctx.ast.statement_expression(SPAN, condition)),
+                                    ),
+                                    ctx.create_child_scope_of_current(ScopeFlags::Arrow),
+                                ),
+                            ),
+                        )),
+                        false,
+                    ),
+                    None,
+                )
+            } else {
+                let identifier =
+                    ctx.generate_uid_in_current_scope("_c$", SymbolFlags::FunctionScopedVariable);
+                (
+                    identifier.create_read_expression(ctx),
+                    Some((identifier, condition)),
+                )
+            };
+            (
+                ctx.ast.expression_conditional(
+                    SPAN,
+                    ctx.ast
+                        .expression_call(SPAN, callee, NONE, ctx.ast.vec(), false),
+                    new_consequent,
+                    new_alternate,
+                ),
+                short_circuit,
+            )
+        } else {
+            (
+                ctx.ast.expression_from_conditional(
+                    conditional_expression.clone_in(ctx.ast.allocator),
+                ),
+                None,
+            )
+        };
+        self.transform_short_circuit(memo, transformed, short_circuit, ctx, deep)
     }
 }
 
