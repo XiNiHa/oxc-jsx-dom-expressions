@@ -148,7 +148,7 @@ impl<'a> JsxTransform<'a> {
                     .check_member(true)
                     .check_tags(info.component_child)
                     .native(!info.component_child);
-                if is_dynamic.check(&container.expression) {
+                if !is_dynamic.check(&container.expression) {
                     return Some(TransformResult {
                         id: None,
                         template: None,
@@ -189,17 +189,42 @@ impl<'a> JsxTransform<'a> {
                     }
                     _ => (
                         None,
-                        container
-                            .expression
-                            .to_expression()
-                            .clone_in(ctx.ast.allocator),
+                        ast::Expression::ArrowFunctionExpression(
+                            ctx.ast.alloc_arrow_function_expression_with_scope_id(
+                                SPAN,
+                                true,
+                                false,
+                                NONE,
+                                ctx.ast.formal_parameters(
+                                    SPAN,
+                                    ast::FormalParameterKind::ArrowFormalParameters,
+                                    ctx.ast.vec(),
+                                    NONE,
+                                ),
+                                NONE,
+                                ctx.ast.function_body(
+                                    SPAN,
+                                    ctx.ast.vec(),
+                                    ctx.ast.vec1(ast::Statement::ExpressionStatement(
+                                        ctx.ast.alloc_expression_statement(
+                                            SPAN,
+                                            container
+                                                .expression
+                                                .to_expression()
+                                                .clone_in(ctx.ast.allocator),
+                                        ),
+                                    )),
+                                ),
+                                ctx.create_child_scope_of_current(ScopeFlags::Arrow),
+                            ),
+                        ),
                     ),
                 };
                 let expr = if let Some(statement) = statement {
                     ctx.ast.expression_call(
                         SPAN,
-                        ctx.ast.expression_from_arrow_function(
-                            ctx.ast.arrow_function_expression_with_scope_id(
+                        ast::Expression::ArrowFunctionExpression(
+                            ctx.ast.alloc_arrow_function_expression_with_scope_id(
                                 SPAN,
                                 false,
                                 false,
@@ -331,7 +356,7 @@ impl<'a> JsxTransform<'a> {
         deep: bool,
     ) -> (Option<ast::Statement<'a>>, ast::Expression<'a>) {
         if let Some((identifier, condition)) = short_circuit {
-            let callee = ctx.ast.expression_from_arrow_function(
+            let callee = ast::Expression::ArrowFunctionExpression(ctx.ast.alloc(
                 ctx.ast.arrow_function_expression_with_scope_id(
                     SPAN,
                     true,
@@ -351,7 +376,7 @@ impl<'a> JsxTransform<'a> {
                     ),
                     ctx.create_child_scope_of_current(ScopeFlags::Arrow),
                 ),
-            );
+            ));
             let statement = ctx.ast.statement_declaration(ctx.ast.declaration_variable(
                 SPAN,
                 ast::VariableDeclarationKind::Var,
@@ -374,26 +399,28 @@ impl<'a> JsxTransform<'a> {
                 )),
                 false,
             ));
-            let result = ctx.ast.expression_from_arrow_function(
-                ctx.ast.arrow_function_expression_with_scope_id(
-                    SPAN,
-                    true,
-                    false,
-                    NONE,
-                    ctx.ast.formal_parameters(
+            let result = ast::Expression::ArrowFunctionExpression(
+                ctx.ast.alloc(
+                    ctx.ast.arrow_function_expression_with_scope_id(
                         SPAN,
-                        ast::FormalParameterKind::ArrowFormalParameters,
-                        ctx.ast.vec(),
+                        true,
+                        false,
                         NONE,
+                        ctx.ast.formal_parameters(
+                            SPAN,
+                            ast::FormalParameterKind::ArrowFormalParameters,
+                            ctx.ast.vec(),
+                            NONE,
+                        ),
+                        NONE,
+                        ctx.ast.function_body(
+                            SPAN,
+                            ctx.ast.vec(),
+                            ctx.ast
+                                .vec1(ctx.ast.statement_expression(SPAN, transformed)),
+                        ),
+                        ctx.create_child_scope_of_current(ScopeFlags::Arrow),
                     ),
-                    NONE,
-                    ctx.ast.function_body(
-                        SPAN,
-                        ctx.ast.vec(),
-                        ctx.ast
-                            .vec1(ctx.ast.statement_expression(SPAN, transformed)),
-                    ),
-                    ctx.create_child_scope_of_current(ScopeFlags::Arrow),
                 ),
             );
             if deep {
@@ -402,8 +429,8 @@ impl<'a> JsxTransform<'a> {
                     None,
                     ctx.ast.expression_call(
                         SPAN,
-                        ctx.ast.expression_from_arrow_function(
-                            ctx.ast.arrow_function_expression_with_scope_id(
+                        ast::Expression::ArrowFunctionExpression(
+                            ctx.ast.alloc_arrow_function_expression_with_scope_id(
                                 SPAN,
                                 false,
                                 false,
@@ -440,8 +467,8 @@ impl<'a> JsxTransform<'a> {
                 if deep {
                     transformed
                 } else {
-                    ctx.ast.expression_from_arrow_function(
-                        ctx.ast.arrow_function_expression_with_scope_id(
+                    ast::Expression::ArrowFunctionExpression(
+                        ctx.ast.alloc_arrow_function_expression_with_scope_id(
                             SPAN,
                             true,
                             false,
@@ -508,7 +535,7 @@ impl<'a> JsxTransform<'a> {
                             memo.create_read_expression(ctx),
                             NONE,
                             ctx.ast.vec1(ctx.ast.argument_expression(
-                                ctx.ast.expression_from_arrow_function(
+                                ast::Expression::ArrowFunctionExpression(ctx.ast.alloc(
                                     ctx.ast.arrow_function_expression_with_scope_id(
                                         SPAN,
                                         true,
@@ -530,7 +557,7 @@ impl<'a> JsxTransform<'a> {
                                         ),
                                         ctx.create_child_scope_of_current(ScopeFlags::Arrow),
                                     ),
-                                ),
+                                )),
                             )),
                             false,
                         ),
@@ -641,7 +668,7 @@ impl<'a> JsxTransform<'a> {
                         memo.create_read_expression(ctx),
                         NONE,
                         ctx.ast.vec1(ctx.ast.argument_expression(
-                            ctx.ast.expression_from_arrow_function(
+                            ast::Expression::ArrowFunctionExpression(ctx.ast.alloc(
                                 ctx.ast.arrow_function_expression_with_scope_id(
                                     SPAN,
                                     true,
@@ -661,7 +688,7 @@ impl<'a> JsxTransform<'a> {
                                     ),
                                     ctx.create_child_scope_of_current(ScopeFlags::Arrow),
                                 ),
-                            ),
+                            )),
                         )),
                         false,
                     ),
@@ -735,9 +762,7 @@ impl<'a> TemplateCreationCtx<'a> {
         {
             Entry::Occupied(entry) => entry.get().clone(),
             Entry::Vacant(entry) => entry
-                .insert(
-                    ctx.generate_uid_in_root_scope(&format!("_$${}", name), SymbolFlags::Import),
-                )
+                .insert(ctx.generate_uid_in_root_scope(&format!("_${}", name), SymbolFlags::Import))
                 .clone(),
         }
     }
@@ -761,7 +786,7 @@ impl<'a> TemplateCreationCtx<'a> {
     fn get_imports(&self, ctx: &mut TraverseCtx<'a>) -> Vec<ast::Statement<'a>> {
         self.imports
             .iter()
-            .map(|((module_name, name), local)| {
+            .map(|((name, module_name), local)| {
                 ctx.ast.statement_module_declaration(
                     ctx.ast.module_declaration_import_declaration(
                         SPAN,
@@ -835,8 +860,8 @@ impl<'a> TemplateCreationCtx<'a> {
                         SPAN,
                         template_fn.create_read_expression(ctx),
                         NONE,
-                        ctx.ast.vec1(ctx.ast.argument_expression(
-                            ctx.ast.expression_template_literal(
+                        ctx.ast.vec1(ast::Argument::TemplateLiteral(
+                            ctx.ast.alloc_template_literal(
                                 SPAN,
                                 ctx.ast.vec1(ctx.ast.template_element(
                                     SPAN,
